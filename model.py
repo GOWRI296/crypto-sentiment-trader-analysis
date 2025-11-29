@@ -1,29 +1,4 @@
-#!/usr/bin/env python3
-"""
-model.py
 
-Complete ready-to-run script tailored for your Fear/Greed CSV sample which contains:
-    timestamp (unix seconds), value, classification, date (YYYY-MM-DD)
-
-Place both CSVs in the same folder as this script:
-  - historical_data.csv
-  - fear_greed_index.csv
-
-Run:
-    python model.py
-
-Outputs (in ./outputs):
-  summary_by_sentiment.csv
-  win_rate_by_sentiment.png
-  avg_pnl_by_sentiment.png
-  daily_pnl.csv
-  accounts_summary.csv
-  stat_tests.csv
-  feature_importances.csv
-  model_metrics.txt
-  accounts_clusters.csv
-  report_summary.txt
-"""
 import os
 import sys
 import traceback
@@ -32,7 +7,7 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend to avoid tkinter issues
+matplotlib.use('Agg')  
 import matplotlib.pyplot as plt
 
 from scipy.stats import ttest_ind
@@ -41,9 +16,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
 
-# -----------------------------
-# CONFIG - edit filenames if needed
-# -----------------------------
+
 LOCAL_PATHS = {
     'historical': 'historical_data.csv',
     'fear_greed': 'fear_greed_index.csv'
@@ -51,9 +24,7 @@ LOCAL_PATHS = {
 OUTPUT_DIR = 'outputs'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# -----------------------------
-# Helpers
-# -----------------------------
+
 def try_read_csv(path):
     if not os.path.exists(path):
         print(f"[ERROR] File not found: {path}")
@@ -86,9 +57,7 @@ def safe_get_column(df, col_names, default='unknown'):
             return df[name].astype(str)
     return default
 
-# -----------------------------
-# Load datasets
-# -----------------------------
+
 def load_datasets():
     df_hist = try_read_csv(LOCAL_PATHS['historical'])
     df_fg = try_read_csv(LOCAL_PATHS['fear_greed'])
@@ -97,20 +66,18 @@ def load_datasets():
         sys.exit(1)
     return df_hist, df_fg
 
-# -----------------------------
-# Preprocess + robust merge (customized for timestamp seconds + date)
-# -----------------------------
+
 def preprocess_and_merge(df_hist, df_fg):
     df_hist = df_hist.copy()
     df_fg = df_fg.copy()
 
-    # ---- historical: detect/normalize key columns ----
+    
     hist_cols = list(df_hist.columns)
-    # time column detection: prefer exact names else contains
+
     time_col = None
     for cand in ['time','timestamp','datetime','date','created_at']:
         if cand in [c.lower() for c in hist_cols]:
-            # find actual column name with same lowercase
+          
             for c in hist_cols:
                 if c.lower() == cand:
                     time_col = c
@@ -123,26 +90,25 @@ def preprocess_and_merge(df_hist, df_fg):
         print("[FATAL] No time/date column detected in historical CSV. Columns:", hist_cols)
         sys.exit(1)
 
-    # Parse historical times - handle both unix timestamps and ISO dates
-    # First, try to detect if it's numeric (unix timestamp)
+   
     numeric_time = pd.to_numeric(df_hist[time_col], errors='coerce')
-    if numeric_time.notna().sum() > len(df_hist) * 0.5:  # More than 50% are numeric
-        # It's numeric - determine if seconds or milliseconds
+    if numeric_time.notna().sum() > len(df_hist) * 0.5: 
+       
         med = numeric_time.median(skipna=True)
         if pd.notna(med):
-            if med > 1e12:  # Likely milliseconds
+            if med > 1e12:  
                 df_hist['time'] = pd.to_datetime(numeric_time, unit='ms', errors='coerce')
                 print(f"[PARSE] Parsed historical '{time_col}' as unix milliseconds.")
             elif med > 1e9:  # Likely seconds
                 df_hist['time'] = pd.to_datetime(numeric_time, unit='s', errors='coerce')
                 print(f"[PARSE] Parsed historical '{time_col}' as unix seconds.")
-            else:  # Try as-is first, then ISO date
+            else:  
                 df_hist['time'] = to_datetime_safe(df_hist[time_col])
                 print(f"[PARSE] Parsed historical '{time_col}' as datetime strings.")
         else:
             df_hist['time'] = to_datetime_safe(df_hist[time_col])
     else:
-        # Not numeric, try ISO date parsing
+        
         df_hist['time'] = to_datetime_safe(df_hist[time_col])
         print(f"[PARSE] Parsed historical '{time_col}' as datetime strings.")
     
@@ -151,11 +117,11 @@ def preprocess_and_merge(df_hist, df_fg):
     if len(df_hist) < before:
         print(f"[INFO] Dropped {before - len(df_hist)} rows with invalid timestamps in historical CSV.")
 
-    # standardize other columns (best-effort) - FIXED VERSION
+    
     df_hist['account'] = safe_get_column(df_hist, ['account', 'acct', 'user'], 'unknown_account')
     df_hist['symbol'] = safe_get_column(df_hist, ['symbol', 'pair'], 'unknown_symbol')
     
-    # execution_price candidates
+    # price candidates
     price_cand = None
     for c in df_hist.columns:
         if 'price' in c.lower() and 'execution' in c.lower():
@@ -176,12 +142,12 @@ def preprocess_and_merge(df_hist, df_fg):
     lev_cand = find_first_contains(df_hist.columns, ['leverage','lev'])
     df_hist['leverage'] = pd.to_numeric(df_hist.get(lev_cand, np.nan), errors='coerce')
 
-    # add date column for later use if needed
+
     df_hist['date'] = df_hist['time'].dt.date
 
-    # ---- fear_greed: parse timestamp (unix seconds) or date ----
+
     fg_cols = list(df_fg.columns)
-    # check for 'timestamp' numeric column (unix seconds)
+  
     ts_col = None
     for c in fg_cols:
         if c.lower() == 'timestamp' or 'timestamp' in c.lower():
@@ -193,12 +159,12 @@ def preprocess_and_merge(df_hist, df_fg):
             date_col = c
             break
 
-    # If timestamp present and appears numeric, interpret as unix seconds
+   
     df_fg['date_dt'] = pd.NaT
     if ts_col is not None:
-        # try numeric conversion
+      
         numeric_ts = pd.to_numeric(df_fg[ts_col], errors='coerce')
-        # treat values > 1e10 as ms, else seconds; but your sample shows seconds (~1.5e9)
+       
         med = numeric_ts.median(skipna=True)
         if pd.notna(med):
             if med > 1e12:
@@ -211,7 +177,7 @@ def preprocess_and_merge(df_hist, df_fg):
             except Exception as e:
                 print(f"[WARN] Failed to parse '{ts_col}' as unix-{unit}: {e}")
 
-    # If date column exists and parsing timestamp didn't succeed for many rows, try using 'date'
+   
     if df_fg['date_dt'].notna().sum() < max(1, int(len(df_fg)*0.1)) and date_col is not None:
         try:
             df_fg['date_dt'] = to_datetime_safe(df_fg[date_col])
@@ -219,20 +185,20 @@ def preprocess_and_merge(df_hist, df_fg):
         except Exception:
             pass
 
-    # If still mostly NaT, try brute-force to_datetime on first col
+   
     if df_fg['date_dt'].notna().sum() == 0:
         first_col = fg_cols[0] if len(fg_cols)>0 else None
         if first_col is not None:
             df_fg['date_dt'] = to_datetime_safe(df_fg[first_col].astype(str), dayfirst=False)
             print(f"[PARSE] Forced parse on first column '{first_col}', parsed {df_fg['date_dt'].notna().sum()} rows.")
 
-    # Build classification column: prefer explicit classification column if present
+   
     class_col = None
     for c in fg_cols:
         if 'class' in c.lower() or 'label' in c.lower() or 'sentiment' in c.lower():
             class_col = c
             break
-    # if no explicit classification, try to build from numeric score
+
     score_col = None
     for c in fg_cols:
         if 'value' in c.lower() or 'score' in c.lower() or 'index' in c.lower():
@@ -247,13 +213,13 @@ def preprocess_and_merge(df_hist, df_fg):
         labels = ['Extreme Fear','Fear','Neutral','Greed']
         df_fg['classification'] = pd.cut(s.fillna(50), bins=bins, labels=labels)
     else:
-        # fallback: if 'classification' column exists as name, use it; else Unknown
+       
         if 'classification' in df_fg.columns:
             df_fg['classification'] = df_fg['classification'].astype(str)
         else:
             df_fg['classification'] = 'Unknown'
 
-    # Drop rows without parsed date
+
     valid_before = len(df_fg)
     df_fg = df_fg.dropna(subset=['date_dt']).sort_values('date_dt').drop_duplicates(subset=['date_dt']).reset_index(drop=True)
     valid_after = len(df_fg)
@@ -263,11 +229,11 @@ def preprocess_and_merge(df_hist, df_fg):
         print("[FATAL] Could not parse any dates in fear_greed CSV. Inspect the file format.")
         sys.exit(1)
 
-    # ---- merge_asof: match each trade to the most recent previous FG index (within tolerance) ----
+    
     df_hist = df_hist.sort_values('time').reset_index(drop=True)
     df_fg = df_fg.sort_values('date_dt').reset_index(drop=True)
     
-    # Diagnostic: check date ranges
+    
     print(f"[DIAG] Historical trades date range: {df_hist['time'].min()} to {df_hist['time'].max()}")
     print(f"[DIAG] Fear/Greed index date range: {df_fg['date_dt'].min()} to {df_fg['date_dt'].max()}")
 
@@ -277,18 +243,18 @@ def preprocess_and_merge(df_hist, df_fg):
         left_on='time',
         right_on='fg_time',
         direction='backward',
-        tolerance=pd.Timedelta('7D')  # increased tolerance to 7 days
+        tolerance=pd.Timedelta('7D') 
     )
 
     matched = merged['classification'].notna().sum()
     print(f"[MERGE] merge_asof matched {matched} / {len(merged)} trades (non-null classification).")
 
-    # Fill remaining NaNs with ffill/bfill then 'Unknown'
+   
     if 'classification' not in merged.columns:
         merged['classification'] = np.nan
     merged['classification'] = merged['classification'].ffill().bfill().fillna('Unknown')
 
-    # Fallback weekly mapping if still many Unknown
+    
     unknown_frac = (merged['classification'] == 'Unknown').mean()
     print(f"[DIAG] Fraction Unknown after asof+fill: {unknown_frac:.3f}")
     if unknown_frac > 0.10:
@@ -303,18 +269,16 @@ def preprocess_and_merge(df_hist, df_fg):
         unknown_frac2 = (merged['classification']=='Unknown').mean()
         print(f"[FALLBACK] Fraction Unknown after weekly mapping: {unknown_frac2:.3f}")
 
-    # ---- feature engineering ----
+    
     merged['is_profitable'] = (merged['closedPnL'] > 0).astype(int)
     merged['pnl_per_size'] = merged['closedPnL'] / merged['size'].replace({0: np.nan})
 
-    # diagnostics
+    
     print("[FINAL] Sentiment counts:", merged['classification'].value_counts().to_dict())
     print("[FINAL] Fraction Unknown:", float((merged['classification']=='Unknown').mean()))
     return merged
 
-# -----------------------------
-# Exploratory analysis
-# -----------------------------
+
 def exploratory_analysis(df):
     print("[INFO] Running exploratory analysis...")
     out = OUTPUT_DIR
@@ -369,9 +333,7 @@ def exploratory_analysis(df):
 
     return summary, daily, acc_summary
 
-# -----------------------------
-# Statistical tests
-# -----------------------------
+
 def statistical_tests(df):
     print("[INFO] Running statistical tests...")
     out = OUTPUT_DIR
@@ -396,9 +358,7 @@ def statistical_tests(df):
     print("[SAVED] stat_tests.csv")
     return res
 
-# -----------------------------
-# Modeling
-# -----------------------------
+
 def modeling(df):
     print("[INFO] Running simple classification model...")
     out = OUTPUT_DIR
@@ -414,12 +374,12 @@ def modeling(df):
     y = model_df['is_profitable'].fillna(0).astype(int)
     X = model_df[['size','execution_price','leverage','side','classification','symbol']].copy()
     
-    # Fill NaN values in numeric columns with median
+    
     X['size'] = X['size'].fillna(X['size'].median())
     X['execution_price'] = X['execution_price'].fillna(X['execution_price'].median())
     X['leverage'] = X['leverage'].fillna(X['leverage'].median())
     
-    # Drop rows that are still all NaN
+   
     X = X.dropna(how='all', subset=['size','execution_price','leverage'])
     y = y.loc[X.index]
 
@@ -432,7 +392,7 @@ def modeling(df):
 
     X_enc = pd.get_dummies(X, columns=['side','classification','symbol'], drop_first=True)
     
-    # Final check: fill any remaining NaNs with 0
+    
     X_enc = X_enc.fillna(0)
     
     stratify = y if (y.nunique() > 1 and len(y) >= 50) else None
@@ -461,9 +421,7 @@ def modeling(df):
     print(f"[INFO] Model train acc: {train_score:.3f}, test acc: {test_score:.3f}")
     return clf, X_test, y_test
 
-# -----------------------------
-# Clustering accounts
-# -----------------------------
+
 def cluster_accounts(df, n_clusters=5):
     print("[INFO] Clustering accounts...")
     out = OUTPUT_DIR
@@ -483,9 +441,7 @@ def cluster_accounts(df, n_clusters=5):
     print("[SAVED] accounts_clusters.csv")
     return agg
 
-# -----------------------------
-# Produce report
-# -----------------------------
+
 def produce_report(summary, daily, acc_summary, stat_res):
     path = os.path.join(OUTPUT_DIR, 'report_summary.txt')
     with open(path, 'w') as f:
@@ -505,15 +461,13 @@ def produce_report(summary, daily, acc_summary, stat_res):
             f.write("Could not stringify account summary.\n")
     print("[SAVED] report_summary.txt")
 
-# -----------------------------
-# Main
-# -----------------------------
+
 def main():
     try:
         df_hist, df_fg = load_datasets()
         merged = preprocess_and_merge(df_hist, df_fg)
 
-        # diagnostics
+        
         print("[DIAG] Sentiment counts after merge:", merged['classification'].value_counts().to_dict())
         print("[DIAG] Fraction Unknown:", float((merged['classification']=='Unknown').mean()))
 
