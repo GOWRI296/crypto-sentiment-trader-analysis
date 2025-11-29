@@ -49,7 +49,7 @@ def find_first_contains(cols, tokens):
     return None
 
 def safe_get_column(df, col_names, default='unknown'):
-    """Safely get a column from df trying multiple names, return as string series."""
+    
     if isinstance(col_names, str):
         col_names = [col_names]
     for name in col_names:
@@ -483,4 +483,5 @@ def main():
         sys.exit(1)
 
 if __name__ == '__main__':
+
     main()
