@@ -1,0 +1,3 @@
+Rows used for modeling: 211224
+Train accuracy: 0.997538155628806
+Test accuracy: 0.7986033850159783

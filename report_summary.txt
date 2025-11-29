@@ -1,0 +1,18 @@
+Trader Behavior Insights - Report Summary
+Generated: 2025-11-25T21:30:43.946558Z
+
+1) Summary by Sentiment:
+                trades    avg_pnl  median_pnl  win_rate
+classification                                         
+Fear            160832  42.103776         0.0  0.404086
+Greed            36289  87.894859         0.0  0.446471
+Neutral           7141  22.229713         0.0  0.317182
+Extreme Greed     6962  25.418772         0.0  0.490089
+
+2) Statistical tests:
+{'group1': 'Fear', 'group2': 'Greed', 't_stat': -7.129761228393862, 'p_val': 1.0200189331418395e-12, 'n_a': 160832, 'n_b': 36289}
+
+3) Top accounts sample (top 10 by total_pnl):
+                 total_trades     total_pnl    avg_pnl  win_rate
+account                                                         
+unknown_account        211224  1.029696e+07  48.749001  0.411265
